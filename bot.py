@@ -9,51 +9,39 @@ from datetime import datetime
 
 TOKEN = os.getenv("TOKEN")
 
+INVITE_CHANNEL = 1476717008010870813
+
 MOD_APP = 1480025962375680182
 TESTER_APP = 1479230179242152019
 CREATOR_APP = 1482388933022056589
-INVITE_CHANNEL = 1476717008010870813
 
-ROBLOX_GAME_ID = 9798063312  # PUT YOUR ROBLOX GAME ID HERE
+ROBLOX_UNIVERSE_ID = 9798063312 # PUT YOUR ROBLOX GAME UNIVERSE ID HERE
 
 intents = discord.Intents.all()
 bot = commands.Bot(command_prefix="!", intents=intents)
 
 invite_cache = {}
-ccu_data = {}
 
-if not os.path.exists("invites.json"):
-    with open("invites.json","w") as f:
-        json.dump({},f)
-
-if not os.path.exists("ccu_data.json"):
-    with open("ccu_data.json","w") as f:
-        json.dump({},f)
+# create files
+for file in ["invites.json","ccu_data.json"]:
+    if not os.path.exists(file):
+        with open(file,"w") as f:
+            json.dump({},f)
 
 
-def load_invites():
-    with open("invites.json") as f:
+def load(file):
+    with open(file) as f:
         return json.load(f)
 
 
-def save_invites(data):
-    with open("invites.json","w") as f:
-        json.dump(data,f,indent=4)
-
-
-def load_ccu():
-    with open("ccu_data.json") as f:
-        return json.load(f)
-
-
-def save_ccu(data):
-    with open("ccu_data.json","w") as f:
+def save(file,data):
+    with open(file,"w") as f:
         json.dump(data,f,indent=4)
 
 
 def get_ccu():
     try:
-        url=f"https://games.roblox.com/v1/games?universeIds={ROBLOX_GAME_ID}"
+        url=f"https://games.roblox.com/v1/games?universeIds={ROBLOX_UNIVERSE_ID}"
         r=requests.get(url).json()
         return r["data"][0]["playing"]
     except:
@@ -61,19 +49,23 @@ def get_ccu():
 
 
 def make_chart():
-    data=load_ccu()
+
+    data=load("ccu_data.json")
+
     hours=list(data.keys())
     values=list(data.values())
 
     plt.clf()
+
     plt.bar(hours,values)
+
     plt.xlabel("Hour")
     plt.ylabel("Players")
     plt.title("Roommates CCU Today")
-    plt.xticks(rotation=45)
+
     plt.tight_layout()
 
-    plt.savefig("ccu_chart.png")
+    plt.savefig("chart.png")
 
 
 @tasks.loop(seconds=30)
@@ -81,64 +73,15 @@ async def update_ccu():
 
     ccu=get_ccu()
 
-    now=datetime.now().strftime("%H")
+    hour=datetime.now().strftime("%H")
 
-    data=load_ccu()
-    data[now]=ccu
+    data=load("ccu_data.json")
 
-    save_ccu(data)
+    data[hour]=ccu
+
+    save("ccu_data.json",data)
 
     make_chart()
-
-    channel=bot.get_channel(INVITE_CHANNEL)
-
-    if channel:
-
-        embed=discord.Embed(
-            title="RoomMates Frequently Asked Questions",
-            color=discord.Color.from_rgb(255,255,255)
-        )
-
-        embed.add_field(
-            name="How do I become a Moderator?",
-            value=f"Go apply in <#{MOD_APP}> whenever they open.",
-            inline=False
-        )
-
-        embed.add_field(
-            name="How do I become a Tester?",
-            value=f"Go apply in <#{TESTER_APP}> whenever they open.",
-            inline=False
-        )
-
-        embed.add_field(
-            name="How do I become a Content Creator?",
-            value=f"Apply in <#{CREATOR_APP}>. These are always open.",
-            inline=False
-        )
-
-        embed.add_field(
-            name="How do I level up?",
-            value="Participate in conversations.",
-            inline=False
-        )
-
-        embed.add_field(
-            name="How do I check the player count in roommates?",
-            value="View the chart below it updates every 30 seconds.",
-            inline=False
-        )
-
-        file=discord.File("ccu_chart.png")
-
-        embed.set_image(url="attachment://ccu_chart.png")
-
-        try:
-            await channel.purge(limit=1)
-        except:
-            pass
-
-        await channel.send(embed=embed,file=file)
 
 
 @bot.event
@@ -166,15 +109,15 @@ async def on_member_join(member):
     used=None
 
     for invite in invites:
-        if invite.uses > invite_cache[guild.id].get(invite.code,0):
+        if invite.uses>invite_cache[guild.id].get(invite.code,0):
             used=invite
             break
 
     invite_cache[guild.id]={i.code:i.uses for i in invites}
 
-    data=load_invites()
+    if used:
 
-    if used and used.inviter:
+        data=load("invites.json")
 
         inviter=str(used.inviter.id)
 
@@ -183,7 +126,7 @@ async def on_member_join(member):
 
         data[inviter]+=1
 
-        save_invites(data)
+        save("invites.json",data)
 
         channel=bot.get_channel(INVITE_CHANNEL)
 
@@ -200,7 +143,7 @@ async def invites(interaction:discord.Interaction,user:discord.Member=None):
     if user is None:
         user=interaction.user
 
-    data=load_invites()
+    data=load("invites.json")
 
     count=data.get(str(user.id),0)
 
@@ -210,13 +153,64 @@ async def invites(interaction:discord.Interaction,user:discord.Member=None):
         color=discord.Color.from_rgb(255,255,255)
     )
 
-    embed.set_thumbnail(url=user.display_avatar.url)
+    embed.add_field(
+        name="Invites",
+        value=f"{count} regular\n0 left",
+        inline=False
+    )
 
-    embed.add_field(name="Invites",value=f"Regular: {count}\nLeft: 0")
+    embed.set_thumbnail(url=user.display_avatar.url)
 
     embed.set_footer(text=f"Requested by {interaction.user}")
 
-    await interaction.response.send_message(embed=embed,ephemeral=False)
+    await interaction.response.send_message(embed=embed)
+
+
+@bot.tree.command(name="faqpanel",description="Post FAQ panel")
+async def faqpanel(interaction:discord.Interaction):
+
+    make_chart()
+
+    embed=discord.Embed(
+        title="RoomMates Frequently Asked Questions",
+        color=discord.Color.from_rgb(255,255,255)
+    )
+
+    embed.add_field(
+        name="How do I become a Moderator?",
+        value=f"Go apply in <#{MOD_APP}> whenever they open.",
+        inline=False
+    )
+
+    embed.add_field(
+        name="How do I become a Tester?",
+        value=f"Go apply in <#{TESTER_APP}> whenever they open.",
+        inline=False
+    )
+
+    embed.add_field(
+        name="How do I become a Content Creator?",
+        value=f"Apply in <#{CREATOR_APP}>. These are always open.",
+        inline=False
+    )
+
+    embed.add_field(
+        name="How do I level up?",
+        value="Participate in conversations.",
+        inline=False
+    )
+
+    embed.add_field(
+        name="How do I check the player count in roommates?",
+        value="View the chart below it updates every 30 seconds.",
+        inline=False
+    )
+
+    file=discord.File("chart.png")
+
+    embed.set_image(url="attachment://chart.png")
+
+    await interaction.response.send_message(embed=embed,file=file)
 
 
 bot.run(TOKEN)
